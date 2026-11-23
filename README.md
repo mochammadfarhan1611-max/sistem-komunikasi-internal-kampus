@@ -102,7 +102,7 @@ Ikuti langkah-langkah berikut untuk menjalankan proyek di komputer lokal Anda:
 
 ### 2. Kloning Repositori
 ```bash
-git clone [https://github.com/mochammadfarhan1611-max/sistem-komunikasi-internal-kampus.git](https://github.com/mochammadfarhan1611-max/sistem-komunikasi-internal-kampus.git)
+git clone https://github.com/mochammadfarhan1611-max/sistem-komunikasi-internal-kampus.git
 cd sistem-komunikasi-internal-kampus
 ```
 
