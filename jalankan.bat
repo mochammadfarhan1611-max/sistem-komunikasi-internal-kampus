@@ -1,0 +1,9 @@
+@echo off
+echo Menjalankan Server Web...
+start cmd /k "php artisan serve"
+
+echo Menjalankan Server WebSocket (Reverb)...
+start cmd /k "php artisan reverb:start"
+
+echo Menjalankan Compiler Frontend (Vite)...
+start cmd /k "npm run dev"

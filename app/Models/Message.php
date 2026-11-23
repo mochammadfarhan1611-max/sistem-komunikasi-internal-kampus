@@ -4,30 +4,28 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Message extends Model
 {
     use HasFactory;
 
-    protected $table = 'messages';
+    protected $fillable = [
+        'sender_identifier',
+        'receiver_identifier',
+        'group_id',
+        'reply_to_id',
+        'body',
+        'attachment_url',
+        'is_read',
+    ];
 
-    protected $guarded = ['id'];
-
-    protected function casts(): array
+    public function group()
     {
-        return [
-            'is_read' => 'boolean',
-        ];
+        return $this->belongsTo(Group::class);
     }
 
-    public function sender(): BelongsTo
+    public function replyTo()
     {
-        return $this->belongsTo(User::class, 'sender_id');
-    }
-
-    public function receiver(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'receiver_id');
+        return $this->belongsTo(Message::class, 'reply_to_id');
     }
 }

@@ -9,6 +9,7 @@ use App\Models\TahunAkademik;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class AuthFlowTest extends TestCase
@@ -41,43 +42,53 @@ class AuthFlowTest extends TestCase
 
     public function test_user_can_login_and_view_dynamic_dashboard(): void
     {
-        $role = Role::create([
-            'nama_role' => 'Mahasiswa',
-            'deskripsi' => 'Mahasiswa aktif',
-        ]);
+        Http::fake(['*' => Http::response(['data' => []], 200)]);
 
-        $fakultas = Fakultas::create([
-            'kode_fakultas' => 'FT',
-            'nama_fakultas' => 'Fakultas Teknik',
-        ]);
+        $role = Role::firstOrCreate(
+            ['nama_role' => 'Mahasiswa'],
+            ['deskripsi' => 'Mahasiswa aktif']
+        );
 
-        $prodi = ProgramStudi::create([
-            'fakultas_id' => $fakultas->id,
-            'kode_prodi' => 'TI',
-            'nama_prodi' => 'Teknik Informatika',
-        ]);
+        $fakultas = Fakultas::firstOrCreate(
+            ['kode_fakultas' => 'FT'],
+            ['nama_fakultas' => 'Fakultas Teknik']
+        );
 
-        TahunAkademik::create([
-            'kode_semester' => '20261',
-            'nama_semester' => 'Semester Ganjil 2026/2027',
-            'is_aktif' => true,
-        ]);
+        $prodi = ProgramStudi::firstOrCreate(
+            ['kode_prodi' => 'TI'],
+            [
+                'fakultas_id' => $fakultas->id,
+                'nama_prodi' => 'Teknik Informatika',
+            ]
+        );
+
+        TahunAkademik::firstOrCreate(
+            ['kode_semester' => '20261'],
+            [
+                'nama_semester' => 'Semester Ganjil 2026/2027',
+                'is_aktif' => true,
+            ]
+        );
 
         $user = User::create([
             'role_id' => $role->id,
+            'identifier' => '2421400199',
+            'name' => 'Mochammad Farhan',
             'nama_lengkap' => 'Mochammad Farhan',
-            'username' => '2421400177',
-            'email_kampus' => '2421400177@mahasiswa.kampus.ac.id',
+            'username' => '2421400199',
+            'role_name' => 'mahasiswa',
+            'unit' => 'Fakultas Teknik',
+            'email_kampus' => '2421400199@mahasiswa.kampus.ac.id',
             'password' => Hash::make('password'),
             'status_akun' => 'Aktif',
-            'nim' => '2421400177',
+            'nim' => '2421400199',
             'tahun_angkatan' => 2024,
             'prodi_id' => $prodi->id,
             'fakultas_id' => $fakultas->id,
         ]);
 
         $loginResponse = $this->post('/login', [
-            'username' => '2421400177',
+            'username' => '2421400199',
             'password' => 'password',
         ]);
 
@@ -88,7 +99,7 @@ class AuthFlowTest extends TestCase
 
         $dashboardResponse->assertStatus(200);
         $dashboardResponse->assertSee('Mochammad Farhan');
-        $dashboardResponse->assertSee('NIM 2421400177');
+        $dashboardResponse->assertSee('NIM 2421400199');
         $dashboardResponse->assertSee('Fakultas Teknik');
         $dashboardResponse->assertSee('Semester Ganjil 2026/2027');
     }

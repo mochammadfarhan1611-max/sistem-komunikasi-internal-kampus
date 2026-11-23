@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class JenisGrup extends Model
 {
@@ -19,11 +18,6 @@ class JenisGrup extends Model
         return [
             'is_otomatis' => 'boolean',
         ];
-    }
-
-    public function grupChat(): HasMany
-    {
-        return $this->hasMany(GrupChat::class, 'jenis_grup_id');
     }
 }
 

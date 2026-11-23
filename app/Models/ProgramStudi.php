@@ -24,10 +24,5 @@ class ProgramStudi extends Model
     {
         return $this->hasMany(User::class, 'prodi_id');
     }
-
-    public function mataKuliah(): HasMany
-    {
-        return $this->hasMany(MataKuliah::class, 'prodi_id');
-    }
 }
 

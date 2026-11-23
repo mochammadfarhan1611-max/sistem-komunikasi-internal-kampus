@@ -2,32 +2,7 @@
     'receiver',
 ])
 
-@php
-    $quickReplies = [
-        'Sesi siang jam 13.30' => 'Ya, silakan hadir di ruang dosen jam 13.30 WIB.',
-        'Lanjutkan Bab 4' => 'Bagus, lanjutkan penyusunan Bab 4 hasil dan pengujian.',
-        'Siapkan slide 10 menit' => 'Tolong siapkan slide presentasi 10 menit untuk progres Jumat.',
-    ];
-@endphp
-
 <div class="flex-shrink-0 border-t border-slate-200 bg-white px-4 py-3 md:px-6">
-    <!-- Balasan Cepat Akademik -->
-    <div class="mb-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        <span class="flex flex-shrink-0 items-center gap-1 text-[11px] font-medium text-slate-400">
-            <span class="material-symbols-outlined text-[14px]">bolt</span>
-            <span>Cepat:</span>
-        </span>
-        @foreach($quickReplies as $label => $teksLengkap)
-            <button
-                type="button"
-                data-quick-text="{{ $teksLengkap }}"
-                class="flex-shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-            >
-                {{ $label }}
-            </button>
-        @endforeach
-    </div>
-
     <!-- Form Input Pesan -->
     <form
         id="chat-send-form"
@@ -36,6 +11,31 @@
         class="space-y-2"
     >
         @csrf
+        <input type="hidden" id="reply-to-id" name="reply_to_id" value="" />
+
+        <!-- Bar Preview Balasan Pesan (Reply Preview) -->
+        <div
+            id="reply-preview-bar"
+            class="hidden items-center justify-between gap-3 rounded-xl border border-blue-100 border-l-4 border-l-blue-600 bg-blue-50/60 px-3.5 py-2"
+        >
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                    <span class="material-symbols-outlined text-[15px]">reply</span>
+                    <span>Membalas <span id="reply-preview-sender"></span></span>
+                </div>
+                <p id="reply-preview-body" class="mt-0.5 truncate text-xs text-slate-600"></p>
+            </div>
+
+            <button
+                type="button"
+                id="cancel-reply-btn"
+                title="Batalkan balasan (Esc)"
+                aria-label="Batalkan balasan"
+                class="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-blue-100 hover:text-slate-700"
+            >
+                <span class="material-symbols-outlined text-[16px]">close</span>
+            </button>
+        </div>
 
         <div id="chat-ajax-error" class="hidden items-center gap-1.5 px-1 text-xs text-red-600">
             <span class="material-symbols-outlined text-[15px]">error</span>

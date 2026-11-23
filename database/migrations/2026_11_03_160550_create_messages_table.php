@@ -13,14 +13,21 @@ return new class extends Migration
     {
         Schema::create('messages', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('sender_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('receiver_id')->constrained('users')->cascadeOnDelete();
-            $table->text('body');
+            // Menggunakan string identifier (NIM/NIDN) bukan foreign key ke tabel users lokal
+            $table->string('sender_identifier'); 
+            $table->string('receiver_identifier')->nullable(); 
+            
+            // Relasi ke tabel groups (opsional, jika pesannya dikirim ke grup)
+            $table->foreignId('group_id')->nullable()->constrained('groups')->cascadeOnDelete();
+            
+            $table->text('body')->nullable();
+            $table->string('attachment_url')->nullable();
             $table->boolean('is_read')->default(false);
             $table->timestamps();
 
-            $table->index(['sender_id', 'receiver_id']);
-            $table->index(['receiver_id', 'is_read']);
+            // Indexing untuk mempercepat pencarian data
+            $table->index(['sender_identifier', 'receiver_identifier']);
+            $table->index(['receiver_identifier', 'is_read']);
         });
     }
 

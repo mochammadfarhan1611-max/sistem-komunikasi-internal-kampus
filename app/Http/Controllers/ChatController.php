@@ -2,75 +2,124 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Message;
-use App\Models\TahunAkademik;
-use App\Models\User;
-use Carbon\CarbonInterface;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
+use App\Services\Chat\ChatDirectoryService;
+use App\Services\Chat\ChatMessageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection as SupportCollection;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class ChatController extends Controller
 {
+    public function __construct(
+        private ChatDirectoryService $directoryService,
+        private ChatMessageService $messageService,
+    ) {}
+
     /**
      * Tampilkan halaman dashboard komunikasi beserta daftar kontak sivitas akademika.
      */
-    public function index(): View
+    public function index(Request $request): View
     {
-        $kontak = $this->ambilKontak();
-        $tahunAktif = $this->ambilTahunAktif();
+        $currentUser = $this->directoryService->currentSsoUser();
+        $this->directoryService->ensureUserKrsSynced($currentUser);
 
-        return view('dashboard', compact('kontak', 'tahunAktif'));
+        $requestedCategory = (string) $request->query('category', 'all');
+        $sidebarData = $this->directoryService->buildSidebarData($currentUser, null, $requestedCategory);
+        $kontak = $sidebarData['kontak'];
+        $categoryCounts = $sidebarData['categoryCounts'];
+        $hasMoreContacts = $sidebarData['hasMoreContacts'];
+        $loadedCategoryCount = $sidebarData['loadedCategoryCount'];
+        $tahunAktif = $this->directoryService->getActiveAcademicYear();
+
+        return view('dashboard', compact(
+            'kontak',
+            'tahunAktif',
+            'categoryCounts',
+            'hasMoreContacts',
+            'loadedCategoryCount'
+        ));
     }
 
     /**
-     * Tampilkan riwayat obrolan antara pengguna yang login dan kontak terpilih.
+     * Tampilkan riwayat obrolan antara pengguna yang login dan kontak/grup terpilih.
      */
-    public function show(int $receiver_id): View|RedirectResponse
+    public function show(Request $request, string $receiver_id): View|RedirectResponse
     {
-        if ($receiver_id === Auth::id()) {
+        $currentUser = $this->directoryService->currentSsoUser();
+        $this->directoryService->ensureUserKrsSynced($currentUser);
+        $userId = (string) $currentUser->id;
+        $requestedCategory = (string) $request->query('category', 'all');
+
+        if ($receiver_id === $userId) {
             return redirect()->route('dashboard');
         }
 
-        $receiver = User::with(['role', 'prodi', 'fakultas', 'unitKampus'])->findOrFail($receiver_id);
-        $userId = (int) Auth::id();
+        if ($this->directoryService->isGroupIdentifier($receiver_id)) {
+            $groupId = $this->directoryService->extractGroupId($receiver_id);
+            $target = $this->directoryService->resolveGroupChatTarget($groupId, $currentUser);
+            $group = $target['group'];
+            $groupMembers = $target['groupMembers'];
+            $receiver = $target['receiver'];
 
-        $messages = Message::with('sender')
-            ->where(function (Builder $query) use ($userId, $receiver_id): void {
-                $query->where(function (Builder $q) use ($userId, $receiver_id): void {
-                    $q->where('sender_id', $userId)->where('receiver_id', $receiver_id);
-                })->orWhere(function (Builder $q) use ($userId, $receiver_id): void {
-                    $q->where('sender_id', $receiver_id)->where('receiver_id', $userId);
-                });
-            })
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get();
+            $history = $this->messageService->loadGroupHistory($group, $currentUser, $target['directory']);
+            $messages = $history['messages'];
+            $hasMoreMessages = $history['hasMoreMessages'];
 
-        // Tandai pesan masuk dari kontak ini sebagai sudah dibaca.
-        Message::where('sender_id', $receiver_id)
-            ->where('receiver_id', $userId)
-            ->where('is_read', false)
-            ->update(['is_read' => true]);
+            $sidebarData = $this->directoryService->buildSidebarData($currentUser, $receiver, $requestedCategory);
+            $kontak = $sidebarData['kontak'];
+            $categoryCounts = $sidebarData['categoryCounts'];
+            $hasMoreContacts = $sidebarData['hasMoreContacts'];
+            $loadedCategoryCount = $sidebarData['loadedCategoryCount'];
+            $tahunAktif = $this->directoryService->getActiveAcademicYear();
 
-        $kontak = $this->ambilKontak();
-        $tahunAktif = $this->ambilTahunAktif();
+            return view('dashboard', compact(
+                'kontak',
+                'messages',
+                'receiver',
+                'tahunAktif',
+                'group',
+                'groupMembers',
+                'hasMoreMessages',
+                'categoryCounts',
+                'hasMoreContacts',
+                'loadedCategoryCount'
+            ));
+        }
 
-        return view('dashboard', compact('kontak', 'messages', 'receiver', 'tahunAktif'));
+        $receiver = $this->directoryService->resolveDirectReceiver($receiver_id);
+        $history = $this->messageService->loadDirectHistory($receiver_id, $currentUser);
+        $messages = $history['messages'];
+        $hasMoreMessages = $history['hasMoreMessages'];
+
+        $sidebarData = $this->directoryService->buildSidebarData($currentUser, $receiver, $requestedCategory);
+        $kontak = $sidebarData['kontak'];
+        $categoryCounts = $sidebarData['categoryCounts'];
+        $hasMoreContacts = $sidebarData['hasMoreContacts'];
+        $loadedCategoryCount = $sidebarData['loadedCategoryCount'];
+        $tahunAktif = $this->directoryService->getActiveAcademicYear();
+
+        return view('dashboard', compact(
+            'kontak',
+            'messages',
+            'receiver',
+            'tahunAktif',
+            'hasMoreMessages',
+            'categoryCounts',
+            'hasMoreContacts',
+            'loadedCategoryCount'
+        ));
     }
 
     /**
-     * Simpan pesan baru ke tabel messages lalu kembalikan JSON (AJAX) atau redirect.
+     * Simpan pesan baru ke tabel messages atau group_messages lalu kembalikan JSON (AJAX) atau redirect.
      */
-    public function sendMessage(Request $request, int $receiver_id): RedirectResponse|JsonResponse
+    public function sendMessage(Request $request, string $receiver_id): RedirectResponse|JsonResponse
     {
-        if ($receiver_id === Auth::id()) {
+        $currentUser = $this->directoryService->currentSsoUser();
+        $userId = (string) $currentUser->id;
+
+        if ($receiver_id === $userId) {
             if ($request->expectsJson()) {
                 return response()->json([
                     'message' => 'Tidak dapat mengirim pesan ke diri sendiri.',
@@ -80,227 +129,97 @@ class ChatController extends Controller
             return redirect()->route('dashboard');
         }
 
-        $receiver = User::findOrFail($receiver_id);
+        $isGroupTarget = $this->directoryService->isGroupIdentifier($receiver_id);
+        $replyTable = $isGroupTarget ? 'group_messages' : 'messages';
 
         $validated = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
+            'body'        => ['required', 'string', 'max:5000'],
+            'reply_to_id' => ['nullable', 'integer', 'exists:'.$replyTable.',id'],
         ], [
-            'body.required' => 'Pesan tidak boleh kosong.',
-            'body.max' => 'Pesan maksimal 5000 karakter.',
+            'body.required'      => 'Pesan tidak boleh kosong.',
+            'body.max'           => 'Pesan maksimal 5000 karakter.',
+            'reply_to_id.exists' => 'Pesan yang dibalas tidak ditemukan.',
         ]);
 
-        $message = Message::create([
-            'sender_id' => Auth::id(),
-            'receiver_id' => $receiver->id,
-            'body' => trim($validated['body']),
-            'is_read' => false,
-        ]);
+        $replyToId = ! empty($validated['reply_to_id']) ? (int) $validated['reply_to_id'] : null;
+
+        if ($isGroupTarget) {
+            $groupId = $this->directoryService->extractGroupId($receiver_id);
+            $group = $this->directoryService->findAuthorizedGroup($groupId, $userId);
+            $formattedMessage = $this->messageService->sendGroupMessage($group, $currentUser, $validated['body'], $replyToId);
+        } else {
+            $formattedMessage = $this->messageService->sendDirectMessage($receiver_id, $currentUser, $validated['body'], $replyToId);
+        }
 
         if ($request->expectsJson()) {
             return response()->json([
-                'message' => $this->formatPesan($message),
-                'contacts_summary' => $this->ambilRingkasanKontak((int) Auth::id())->values(),
+                'message'          => $formattedMessage,
+                'contacts_summary' => $this->directoryService->getContactsSummary($userId)->values(),
             ], 201);
         }
 
-        return redirect()->route('chat.show', $receiver->id);
+        return redirect()->route('chat.show', $receiver_id);
     }
 
     /**
-     * Ambil pesan baru setelah ID terakhir, status pesan terbaca, dan ringkasan sidebar untuk AJAX polling.
+     * Ambil pesan baru setelah ID terakhir, pesan lama sebelum ID, status pesan terbaca, dan ringkasan sidebar.
      */
-    public function fetchMessages(Request $request, int $receiver_id): JsonResponse
+    public function fetchMessages(Request $request, string $receiver_id): JsonResponse
     {
-        $userId = (int) Auth::id();
+        $currentUser = $this->directoryService->currentSsoUser();
+        $userId = (string) $currentUser->id;
 
         if ($receiver_id === $userId) {
             return response()->json([
-                'messages' => [],
-                'last_read_id' => 0,
-                'contacts_summary' => $this->ambilRingkasanKontak($userId)->values(),
+                'messages'         => [],
+                'last_read_id'     => 0,
+                'contacts_summary' => $this->directoryService->getContactsSummary($userId)->values(),
             ]);
         }
 
-        User::findOrFail($receiver_id);
         $afterId = max(0, (int) $request->query('after_id', 0));
+        $beforeId = max(0, (int) $request->query('before_id', 0));
+        $markReadOnly = $request->boolean('mark_read');
 
-        Message::where('sender_id', $receiver_id)
-            ->where('receiver_id', $userId)
-            ->where('is_read', false)
-            ->update(['is_read' => true]);
+        if ($this->directoryService->isGroupIdentifier($receiver_id)) {
+            $groupId = $this->directoryService->extractGroupId($receiver_id);
+            $group = $this->directoryService->findAuthorizedGroup($groupId, $userId);
 
-        $newMessages = Message::where('id', '>', $afterId)
-            ->where(function (Builder $query) use ($userId, $receiver_id): void {
-                $query->where(function (Builder $q) use ($userId, $receiver_id): void {
-                    $q->where('sender_id', $userId)->where('receiver_id', $receiver_id);
-                })->orWhere(function (Builder $q) use ($userId, $receiver_id): void {
-                    $q->where('sender_id', $receiver_id)->where('receiver_id', $userId);
-                });
-            })
-            ->orderBy('created_at')
-            ->orderBy('id')
-            ->get()
-            ->map(fn (Message $msg): array => $this->formatPesan($msg))
-            ->values();
+            return response()->json(
+                $this->messageService->fetchGroupMessagesPayload($group, $currentUser, $afterId, $beforeId, $markReadOnly)
+            );
+        }
 
-        $lastReadId = (int) Message::where('sender_id', $userId)
-            ->where('receiver_id', $receiver_id)
-            ->where('is_read', true)
-            ->max('id');
-
-        return response()->json([
-            'messages' => $newMessages,
-            'last_read_id' => $lastReadId,
-            'contacts_summary' => $this->ambilRingkasanKontak($userId)->values(),
-        ]);
+        return response()->json(
+            $this->messageService->fetchDirectMessagesPayload($receiver_id, $currentUser, $afterId, $beforeId, $markReadOnly)
+        );
     }
 
     /**
-     * Ambil ringkasan sidebar (unread count & pesan terakhir) untuk polling di halaman dashboard tanpa obrolan aktif.
+     * Ambil ringkasan sidebar (unread count & pesan terakhir) untuk sinkronisasi halaman dashboard.
      */
     public function contactsSummary(): JsonResponse
     {
+        $currentUser = $this->directoryService->currentSsoUser();
+
         return response()->json([
-            'contacts_summary' => $this->ambilRingkasanKontak((int) Auth::id())->values(),
+            'contacts_summary' => $this->directoryService->getContactsSummary((string) $currentUser->id)->values(),
         ]);
     }
 
     /**
-     * Format model Message ke struktur array siap-JSON dengan zona waktu WIB.
-     *
-     * @return array{id: int, sender_id: int, body: string, is_read: bool, time: string, date_key: string, date_label: string}
+     * Pencarian AJAX & Lazy-Load Tab Kategori (Dosen / Mahasiswa) di Sidebar dengan pengurutan Top Relevance Match.
      */
-    private function formatPesan(Message $msg): array
+    public function search(Request $request): JsonResponse
     {
-        $tanggal = $msg->created_at->timezone('Asia/Jakarta');
-        $hari = $tanggal->isToday()
-            ? 'Hari Ini'
-            : ($tanggal->isYesterday() ? 'Kemarin' : $tanggal->locale('id')->translatedFormat('l'));
+        $currentUser = $this->directoryService->currentSsoUser();
+        $keyword = trim((string) $request->query('keyword', ''));
+        $roleFilter = trim((string) $request->query('role', 'all'));
+        $offset = max(0, (int) $request->query('offset', 0));
+        $limit = min(60, max(10, (int) $request->query('limit', 40)));
 
-        return [
-            'id' => $msg->id,
-            'sender_id' => $msg->sender_id,
-            'body' => $msg->body,
-            'is_read' => (bool) $msg->is_read,
-            'time' => $tanggal->format('H:i').' WIB',
-            'date_key' => $tanggal->format('Y-m-d'),
-            'date_label' => $hari.', '.$tanggal->locale('id')->translatedFormat('d F Y'),
-        ];
-    }
-
-    /**
-     * Bangun ringkasan percakapan per kontak (pesan terakhir & jumlah belum dibaca), diurutkan dari yang terbaru.
-     *
-     * @return SupportCollection<int, array{contact_id: int, unread_count: int, last_message: array{id: int, body: string, time: string, timestamp: string, is_sender_me: bool, is_read: bool}}>
-     */
-    private function ambilRingkasanKontak(int $userId): SupportCollection
-    {
-        $lastMessageIds = Message::query()
-            ->selectRaw('CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END AS contact_id', [$userId])
-            ->selectRaw('MAX(id) AS last_message_id')
-            ->where(function (Builder $query) use ($userId): void {
-                $query->where('sender_id', $userId)->orWhere('receiver_id', $userId);
-            })
-            ->groupBy('contact_id')
-            ->pluck('last_message_id', 'contact_id');
-
-        if ($lastMessageIds->isEmpty()) {
-            return collect();
-        }
-
-        $lastMessages = Message::whereIn('id', $lastMessageIds->values())->get()->keyBy('id');
-
-        $unreadCounts = Message::query()
-            ->selectRaw('sender_id, COUNT(*) AS total')
-            ->where('receiver_id', $userId)
-            ->where('is_read', false)
-            ->groupBy('sender_id')
-            ->pluck('total', 'sender_id');
-
-        return $lastMessageIds
-            ->mapWithKeys(function (int|string $lastMessageId, int|string $contactId) use ($lastMessages, $unreadCounts, $userId): array {
-                $message = $lastMessages->get((int) $lastMessageId);
-
-                if ($message === null) {
-                    return [];
-                }
-
-                return [
-                    (int) $contactId => [
-                        'contact_id' => (int) $contactId,
-                        'unread_count' => (int) ($unreadCounts[$contactId] ?? 0),
-                        'last_message' => $this->formatPesanTerakhir($message, $userId),
-                    ],
-                ];
-            })
-            ->sortByDesc(fn (array $ringkasan): int => $ringkasan['last_message']['id']);
-    }
-
-    /**
-     * Format pesan terakhir untuk cuplikan satu baris di sidebar.
-     *
-     * @return array{id: int, body: string, time: string, timestamp: string, is_sender_me: bool, is_read: bool}
-     */
-    private function formatPesanTerakhir(Message $msg, int $userId): array
-    {
-        $tanggal = $msg->created_at->timezone('Asia/Jakarta');
-
-        return [
-            'id' => $msg->id,
-            'body' => Str::limit(trim((string) preg_replace('/\s+/u', ' ', $msg->body)), 120),
-            'time' => $this->formatWaktuSidebar($tanggal),
-            'timestamp' => $tanggal->toIso8601String(),
-            'is_sender_me' => (int) $msg->sender_id === $userId,
-            'is_read' => (bool) $msg->is_read,
-        ];
-    }
-
-    /**
-     * Format waktu ringkas ala aplikasi chat: jam (hari ini), "Kemarin", nama hari (≤ 6 hari), atau tanggal.
-     */
-    private function formatWaktuSidebar(CarbonInterface $tanggal): string
-    {
-        if ($tanggal->isToday()) {
-            return $tanggal->format('H:i');
-        }
-
-        if ($tanggal->isYesterday()) {
-            return 'Kemarin';
-        }
-
-        if ($tanggal->greaterThanOrEqualTo(now($tanggal->getTimezone())->subDays(6)->startOfDay())) {
-            return $tanggal->locale('id')->translatedFormat('l');
-        }
-
-        return $tanggal->format('d/m/y');
-    }
-
-    /**
-     * Ambil semua kontak beserta unread_count & last_message, diurutkan dari percakapan terbaru lalu nama.
-     */
-    private function ambilKontak(): Collection
-    {
-        $currentUser = Auth::user();
-        $currentUser->loadMissing(['role', 'fakultas', 'prodi', 'unitKampus']);
-
-        $ringkasanKontak = $this->ambilRingkasanKontak((int) $currentUser->id);
-
-        return User::with(['role', 'prodi', 'fakultas', 'unitKampus'])
-            ->where('id', '!=', $currentUser->id)
-            ->orderBy('nama_lengkap')
-            ->get()
-            ->each(function (User $kontak) use ($ringkasanKontak): void {
-                $ringkasan = $ringkasanKontak->get($kontak->id);
-
-                $kontak->setAttribute('unread_count', $ringkasan['unread_count'] ?? 0);
-                $kontak->setAttribute('last_message', $ringkasan['last_message'] ?? null);
-            })
-            ->sortByDesc(fn (User $kontak): int => $kontak->last_message['id'] ?? 0)
-            ->values();
-    }
-
-    private function ambilTahunAktif(): ?TahunAkademik
-    {
-        return TahunAkademik::where('is_aktif', true)->first();
+        return response()->json(
+            $this->directoryService->searchContacts($currentUser, $keyword, $roleFilter, $offset, $limit)
+        );
     }
 }

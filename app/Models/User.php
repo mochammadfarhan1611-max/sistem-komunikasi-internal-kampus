@@ -67,101 +67,6 @@ class User extends Authenticatable
         return $this->hasOne(UnitKampus::class, 'user_id');
     }
 
-    public function kelasPerkuliahan(): HasMany
-    {
-        return $this->hasMany(KelasPerkuliahan::class, 'dosen_id');
-    }
-
-    public function hubunganAkademikMahasiswa(): HasMany
-    {
-        return $this->hasMany(HubunganAkademik::class, 'mahasiswa_id');
-    }
-
-    public function hubunganAkademikTarget(): HasMany
-    {
-        return $this->hasMany(HubunganAkademik::class, 'target_user_id');
-    }
-
-    public function sinkronisasiAkademik(): HasMany
-    {
-        return $this->hasMany(SinkronisasiAkademik::class, 'admin_id');
-    }
-
-    public function krsMahasiswa(): HasMany
-    {
-        return $this->hasMany(KrsMahasiswa::class, 'mahasiswa_id');
-    }
-
-    public function grupChatDibuat(): HasMany
-    {
-        return $this->hasMany(GrupChat::class, 'pembuat_id');
-    }
-
-    public function anggotaGrup(): HasMany
-    {
-        return $this->hasMany(AnggotaGrup::class, 'user_id');
-    }
-
-    public function percakapanSebagaiUserSatu(): HasMany
-    {
-        return $this->hasMany(Percakapan::class, 'user_satu_id');
-    }
-
-    public function percakapanSebagaiUserDua(): HasMany
-    {
-        return $this->hasMany(Percakapan::class, 'user_dua_id');
-    }
-
-    public function pesan(): HasMany
-    {
-        return $this->hasMany(Pesan::class, 'pengirim_id');
-    }
-
-    public function permintaanChatDikirim(): HasMany
-    {
-        return $this->hasMany(PermintaanChat::class, 'pengirim_id');
-    }
-
-    public function permintaanChatDiterima(): HasMany
-    {
-        return $this->hasMany(PermintaanChat::class, 'penerima_id');
-    }
-
-    public function notifikasi(): HasMany
-    {
-        return $this->hasMany(Notifikasi::class, 'user_id');
-    }
-
-    public function pengaturanKomunikasi(): HasOne
-    {
-        return $this->hasOne(PengaturanKomunikasi::class, 'user_id');
-    }
-
-    public function loginLogs(): HasMany
-    {
-        return $this->hasMany(LoginLog::class, 'user_id');
-    }
-
-    public function activityLogs(): HasMany
-    {
-        return $this->hasMany(ActivityLog::class, 'user_id');
-    }
-
-    public function communicationLogs(): HasMany
-    {
-        return $this->hasMany(CommunicationLog::class, 'pengirim_id');
-    }
-
-    public function antiSpamLogs(): HasMany
-    {
-        return $this->hasMany(AntiSpamLog::class, 'user_id');
-    }
-
-    public function errorLogs(): HasMany
-    {
-        return $this->hasMany(ErrorLog::class, 'user_id');
-    }
-
     public function sentMessages(): HasMany
     {
         return $this->hasMany(Message::class, 'sender_id');
@@ -177,7 +82,8 @@ class User extends Authenticatable
      */
     public function initials(): string
     {
-        $cleanName = trim((string) preg_replace('/\b(Prof|Dr|Ir|H|Hj)\.\s*/i', '', (string) $this->nama_lengkap));
+        $fullName = (string) ($this->nama_lengkap ?: $this->name ?: $this->identifier ?: $this->username);
+        $cleanName = trim((string) preg_replace('/\b(Prof|Dr|Ir|H|Hj)\.\s*/i', '', $fullName));
         $words = preg_split('/\s+/', $cleanName) ?: [];
 
         $initials = collect($words)
@@ -194,7 +100,20 @@ class User extends Authenticatable
      */
     public function roleName(): string
     {
-        return (string) ($this->role?->nama_role ?? 'Pengguna');
+        if ($this->relationLoaded('role') && $this->getRelation('role') !== null) {
+            return (string) ($this->getRelation('role')->nama_role ?? 'Mahasiswa');
+        }
+
+        if (! empty($this->role_name)) {
+            return match (strtolower((string) $this->role_name)) {
+                'dosen', 'admin_grup' => 'Dosen',
+                'staff_unit', 'unit kerja' => 'Staff_Unit',
+                'admin' => 'Admin',
+                default => 'Mahasiswa',
+            };
+        }
+
+        return (string) ($this->role?->nama_role ?? 'Mahasiswa');
     }
 
     /**
@@ -210,7 +129,7 @@ class User extends Authenticatable
      */
     public function identityNumber(): string
     {
-        return (string) ($this->nim ?? $this->nidn_nip ?? $this->unitKampus?->kode_unit ?? $this->username);
+        return (string) ($this->nim ?? $this->nidn_nip ?? $this->identifier ?? $this->unitKampus?->kode_unit ?? $this->username);
     }
 
     /**
@@ -230,7 +149,7 @@ class User extends Authenticatable
             return 'Unit '.$this->unitKampus->kode_unit;
         }
 
-        return (string) $this->username;
+        return (string) ($this->identifier ?: $this->username);
     }
 
     /**
@@ -241,6 +160,7 @@ class User extends Authenticatable
         return (string) ($this->fakultas?->nama_fakultas
             ?? $this->unitKampus?->nama_unit_kerja
             ?? $this->prodi?->nama_prodi
+            ?? $this->unit
             ?? $this->roleLabel());
     }
 
